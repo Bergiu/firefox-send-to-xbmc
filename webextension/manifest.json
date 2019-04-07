@@ -1,11 +1,6 @@
 {
-  "name": "Send to Kodi",
-  "version": "3.1.0",
-  "applications": {
-  "gecko": {
-      "id": "jid0-YCM0p5WlCGjvBJcZhAusQ5h26wM@jetpack"
-    }
-  },
+  "name": "Advanced Send to Kodi",
+  "version": "3.2.0",
   "manifest_version": 2,
   "permissions": [
     "storage",
