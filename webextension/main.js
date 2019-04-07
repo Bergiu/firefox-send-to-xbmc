@@ -84,7 +84,6 @@ function addSendToServers(servers){
 
 
 function displayMessage(m_title, message, type) {
-  //if (!prefs.shownotify && type != 'error') return; //User doesn't want notifications
   browser.notifications.create({
     type: 'basic',
     message: message,
@@ -118,81 +117,69 @@ function handleSubMenuClick(clickdata){
   }
 }
 
+function findBestFormat(formats, server) {
+  var best = null;
+  for (var s in formats) {
+      var form = formats[s];
+      var url = new URL(form.url);
+      var ext = url.pathname.split('.').pop();
+      if (/^(mp4|mkv|mov|avi|flv|wmv|asf|mka|ogg|webm|oga|ogv|m3u8)$/.test(ext)) {
+          if (server.maxheight === "" || form.height <= server.maxheight) {
+              if (best === null) {
+                  best = form;
+              } else if (best.height === undefined || best.height === null) {
+                  best = form;
+              } else if (best.height < form.height) {
+                  best = form;
+              }
+          }
+      }
+  }
+  // if best is null, get the best video without extensions
+  if (best === null) {
+      for (var s in formats) {
+          var form = formats[s];
+          if (server.maxheight === "" || form.height <= server.maxheight) {
+              if (best === null) {
+                  best = form;
+              } else if (best.height === undefined || best.height === null) {
+                  best = form;
+              } else if (best.height < form.height) {
+                  best = form;
+              }
+          }
+      }
+  }
+  // if best is null, get the last link
+  if (best === null) {
+      best = formats[formats.length-1];
+  }
+  return best;
+}
+
 //Parse an url to send
 function parseUrlPlay(url, pathname, playhost) {
-  var youtubeRex = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=)([^#\&\?]*).*/;
-  var match = url.match(youtubeRex);
-  if (match && match[2].length == 11) {
-    sendYouTube(match[2], playhost);
-    return;
-  }
-  var youtubeRex2 = /^.*(youtube.com\/watch.*[\?\&]v=)([^#\&\?]*).*/;
-  var match2 = url.match(youtubeRex2);
-  if (match2 && match2[2].length == 11) {
-    sendYouTube(match2[2], playhost);
-    return;
-  }
-  var vimeoRex = /^.*vimeo.com\/([0-9]+)/;
-  var match = url.match(vimeoRex);
-  if (match) {
-    sendToVimeo(match[1], playhost);
-    return;
-  }
-  var twitchChannelRex = /^.*twitch.tv\/([a-zA-Z0-9_]+)$/;
-  var match = url.match(twitchChannelRex);
-  if (match) {
-    sendToTwitch(match[1], 'channel', playhost);
-    return;
-  }
-  var twitchVideoRex = /^.*twitch.tv\/videos\/([0-9]+)$/;
-  var match = url.match(twitchVideoRex);
-  if (match) {
-    sendToTwitch(match[1], 'video', playhost);
-    return;
-  }
-  if(pathname === ''){
     //Dont extra check the extension
-    sendToKodi(url,playhost);
+    var oReq = new XMLHttpRequest();
+    oReq.onload = function() {
+      if (this.responseText!=="null") {
+          var res = JSON.parse(this.responseText);
+          if (res.formats !== undefined) {
+              var format = findBestFormat(res.formats, playhost);
+              sendToKodi(format.url, playhost, format);
+          }
+      }
+    };
+    oReq.open("GET", "https://youtube-dl-web.aachen.ml/extract?url="+url);
+    oReq.send();
     return;
-  }
-  var ext = pathname.split('.').pop();
-  //Supported extensions
-  if (/^(mp4|mkv|mov|mp3|avi|flv|wmv|asf|flac|mka|m4a|aac|ogg|pls|jpg|png|gif|jpeg|tiff|webm|webm|oga|ogv)$/.test(ext)) {
-    sendToKodi(url, playhost);
-    return;
-  }
-  displayMessage('Error', 'The following url is not supported: ' + url, 'error');
-}
-
-//Send a YouTube video
-function sendYouTube(ytid, playhost) {
-  var url = 'plugin://plugin.video.youtube/play/?video_id=' + ytid;
-  sendToKodi(url, playhost);
-}
-
-//Send a Vimeo video
-function sendToVimeo(vmid, playhost) {
-  var url = 'plugin://plugin.video.vimeo/play/?video_id=' + vmid;
-  sendToKodi(url, playhost);
-}
-
-//Send a Twitch channel/video
-function sendToTwitch(twid, type, playhost) {
-  if (type == 'channel'){
-    // This works for Kodi Twitch plugin v2.1.0 or newer only
-    var url = 'plugin://plugin.video.twitch/?mode=play&channel_name=' + twid;
-  }
-  if (type == 'video'){
-    var url = 'plugin://plugin.video.twitch/?mode=play&video_id=' + twid;
-  }
-  sendToKodi(url, playhost);
 }
 
 //Send request to Kodi
-function sendToKodi(fileurl, server) {
+function sendToKodi(fileurl, server, format) {
   // Construct headers
   serverurl = server.host +':'+server.port;
-  postheaders = new Headers()
+  postheaders = new Headers();
   postheaders.append('Content-Type','application/json');
   rurl = 'http://' + serverurl + '/jsonrpc';
   if (server.username && server.username !== '') {
@@ -210,13 +197,13 @@ function sendToKodi(fileurl, server) {
     },
     "id": 1
   };
-  displayMessage('Sending', 'Sending to Kodi...', 'info');
+  displayMessage('Sending', 'Sending to Kodi... - Resolution: '+format.height, 'info');
   rdata = {
     method: 'POST',
     body: JSON.stringify(senddata),
     headers: postheaders,
     credentials: 'include'
-  }
+  };
   fetch(rurl, rdata).then(handleComplete);
 }
 
@@ -253,24 +240,19 @@ function handleComplete(resp) {
 }
 
 function setupButton(){
-  var gettingAllTabs = browser.tabs.query({url:['*://www.youtube.com/watch*','*://vimeo.com/*','*://twitch.tv/videos/*']});
-  gettingAllTabs.then((tabs) => {
-    for (let tab of tabs) {
-      browser.pageAction.show(tab.id);
-    }
-  });
   browser.tabs.onUpdated.addListener(displayButton);
   browser.pageAction.onClicked.addListener(buttonClick);
 }
 
 function displayButton(tabId, changeInfo, tabInfo) {
-    var regExp = /^.*(youtube.com\/watch.*[\?\&]v=)([^#\&\?]*).*/;
-    var vimeoRex = /^.*vimeo.com\/([0-9]+)/;
-    var twitchVideoRex = /^.*twitch.tv\/videos\/([0-9]+)$/;
-
-    if (tabInfo.url.match(regExp) || tabInfo.url.match(vimeoRex) || tabInfo.url.match(twitchVideoRex)) {
-      browser.pageAction.show(tabId);
-    }
+    var oReq = new XMLHttpRequest();
+    oReq.onload = function() {
+      if (this.responseText!=="null") {
+          browser.pageAction.show(tabId);
+      }
+    };
+    oReq.open("GET", "https://youtube-dl-web.aachen.ml/extract?url="+tabInfo.url);
+    oReq.send();
 }
 
 function buttonClick(tab){
