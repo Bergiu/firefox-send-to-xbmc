@@ -1,3 +1,5 @@
+**Private Fork! Not intended for public use. If you want to use it, use it on your own risk.**
+
 # Send to XBMC/Kodi Firefox plugin
 https://addons.mozilla.org/en-US/firefox/addon/send-to-xbmc/
 
